@@ -17,13 +17,13 @@ class WorkoutRepositoryImpl : WorkoutRepository {
     override fun getDayWorkout(day: WorkoutDay): Flow<DayWorkout?> =
         _weeklyPlan.map { plan -> plan.find { it.day == day } }
 
-    fun updateDayWorkout(dayWorkout: DayWorkout) {
+    override fun updateDayWorkout(dayWorkout: DayWorkout) {
         _weeklyPlan.value = _weeklyPlan.value.map {
             if (it.day == dayWorkout.day) dayWorkout else it
         }
     }
 
-    fun addExercise(day: WorkoutDay, exercise: Exercise) {
+    override fun addExercise(day: WorkoutDay, exercise: Exercise) {
         val current = _weeklyPlan.value.find { it.day == day } ?: return
         val updated = current.copy(
             exercises = current.exercises + exercise,
@@ -32,7 +32,7 @@ class WorkoutRepositoryImpl : WorkoutRepository {
         updateDayWorkout(updated)
     }
 
-    fun removeExercise(day: WorkoutDay, exerciseId: String) {
+    override fun removeExercise(day: WorkoutDay, exerciseId: String) {
         val current = _weeklyPlan.value.find { it.day == day } ?: return
         val exercise = current.exercises.find { it.id == exerciseId } ?: return
         val updated = current.copy(
@@ -42,12 +42,12 @@ class WorkoutRepositoryImpl : WorkoutRepository {
         updateDayWorkout(updated)
     }
 
-    fun updateDayFocus(day: WorkoutDay, focus: DayFocus) {
+    override fun updateDayFocus(day: WorkoutDay, focus: DayFocus) {
         val current = _weeklyPlan.value.find { it.day == day } ?: return
         updateDayWorkout(current.copy(customFocus = focus))
     }
 
-    fun setYoutubeVideoId(day: WorkoutDay, videoId: String?) {
+    override fun setYoutubeVideoId(day: WorkoutDay, videoId: String?) {
         val current = _weeklyPlan.value.find { it.day == day } ?: return
         updateDayWorkout(current.copy(youtubeVideoId = videoId))
     }
