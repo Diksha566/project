@@ -18,12 +18,16 @@ import com.guidedfitness.app.data.repository.local.LocalProgressRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -139,12 +143,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val userId = userIdFlow.value ?: return@launch
             playlistImportState.value = PlaylistImportState.Loading
 
-            // Non-API import is currently supported for WEEKLY only.
-            if (type != ImportPlanType.WEEKLY) {
-                playlistImportState.value = PlaylistImportState.Error("Monthly import without API isn’t supported yet.")
-                return@launch
-            }
-
             val result = withContext(Dispatchers.IO) {
                 playlistScraper.fetchPlaylistVideoIds(url)
             }
@@ -155,25 +153,56 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 is YoutubePlaylistScrapeClient.Result.Success -> {
                     val ids = result.videoIds
-                    val orderedDays = weeklyDaysSundayFirst()
-                    val assigned = distributeIdsSundayFirst(ids, orderedDays)
+                    when (type) {
+                        ImportPlanType.WEEKLY -> {
+                            val orderedDays = weeklyDaysSundayFirst()
+                            val assigned = distributeIdsSundayFirst(ids, orderedDays)
 
-                    val items = assigned.mapIndexed { idx, pair ->
-                        val (day, videoId) = pair
-                        DraftPlaylistVideo(
-                            videoId = videoId,
-                            title = "Video ${idx + 1}",
-                            description = "",
-                            thumbnailUrl = runCatching { playlistScraper.videoThumbnailUrl(videoId) }.getOrNull(),
-                            assignedDay = day
-                        )
+                            val items = assigned.mapIndexed { idx, pair ->
+                                val (day, videoId) = pair
+                                DraftPlaylistVideo(
+                                    videoId = videoId,
+                                    title = "Video ${idx + 1}",
+                                    description = "",
+                                    thumbnailUrl = runCatching { playlistScraper.videoThumbnailUrl(videoId) }.getOrNull(),
+                                    assignedDay = day
+                                )
+                            }
+                            playlistImportState.value = PlaylistImportState.Preview(
+                                playlistUrl = result.playlistUrl,
+                                items = items
+                            )
+                        }
+                        ImportPlanType.MONTHLY -> {
+                            monthlyRepo(userId).ensureSeeded(30)
+                            applyMonthlyFromIds(userId, ids, days = 30)
+                            syncRepo.syncUp(userId)
+                            playlistImportState.value = PlaylistImportState.Success(ids.size)
+                        }
                     }
-                    playlistImportState.value = PlaylistImportState.Preview(
-                        playlistUrl = result.playlistUrl,
-                        items = items
-                    )
                 }
             }
+        }
+    }
+
+    private suspend fun applyMonthlyFromIds(userId: String, ids: List<String>, days: Int) {
+        val repo = monthlyRepo(userId)
+        val assigned = ids.mapIndexed { idx, id ->
+            val dayIndex = (idx % days) + 1
+            dayIndex to id
+        }
+        val grouped = assigned.groupBy { it.first }
+        for (i in 1..days) {
+            val list = grouped[i].orEmpty().mapIndexed { idx, pair ->
+                val videoId = pair.second
+                MonthlyVideo(
+                    id = "${userId}_${i}_${idx}_$videoId",
+                    title = "Video ${idx + 1}",
+                    thumbnailUrl = runCatching { playlistScraper.videoThumbnailUrl(videoId) }.getOrNull(),
+                    videoUrl = playlistScraper.videoWatchUrl(videoId)
+                )
+            }
+            repo.replaceDayVideos(i, list)
         }
     }
 
@@ -334,6 +363,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = false
     )
+
+    data class DayProgress(
+        val minutes: Int,
+        val sessions: Int
+    ) {
+        val completed: Boolean get() = sessions > 0
+    }
+
+    private fun todayWorkoutDay(): WorkoutDay {
+        val dow = LocalDate.now().dayOfWeek
+        return when (dow) {
+            DayOfWeek.SUNDAY -> WorkoutDay.SUNDAY
+            DayOfWeek.MONDAY -> WorkoutDay.MONDAY
+            DayOfWeek.TUESDAY -> WorkoutDay.TUESDAY
+            DayOfWeek.WEDNESDAY -> WorkoutDay.WEDNESDAY
+            DayOfWeek.THURSDAY -> WorkoutDay.THURSDAY
+            DayOfWeek.FRIDAY -> WorkoutDay.FRIDAY
+            DayOfWeek.SATURDAY -> WorkoutDay.SATURDAY
+        }
+    }
+
+    private fun currentWeekRangeSunday(): Pair<Long, Long> {
+        val today = LocalDate.now()
+        val start = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
+        val end = start.plusDays(6)
+        return start.toEpochDay() to end.toEpochDay()
+    }
+
+    val weeklyProgressByDay: StateFlow<Map<WorkoutDay, DayProgress>> =
+        logsFlow.map { logs ->
+            val (start, end) = currentWeekRangeSunday()
+            val inWeek = logs.filter { it.dateEpochDay in start..end }
+            val grouped = inWeek.groupBy { it.day }
+            WorkoutDay.entries.associateWith { day ->
+                val list = grouped[day.name].orEmpty()
+                DayProgress(
+                    minutes = list.sumOf { it.minutes },
+                    sessions = list.size
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val weeklyCompletedDaysCount: StateFlow<Int> =
+        weeklyProgressByDay.map { map -> map.values.count { it.completed } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val todayWorkout: StateFlow<com.guidedfitness.app.data.model.DayWorkout?> =
+        userIdFlow.filterNotNull()
+            .flatMapLatest { userId ->
+                planRepo(userId).getDayWorkout(todayWorkoutDay())
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun getDayWorkout(day: WorkoutDay) =
         userIdFlow.filterNotNull().flatMapLatest { userId ->

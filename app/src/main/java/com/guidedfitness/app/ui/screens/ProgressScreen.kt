@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -154,42 +155,12 @@ fun ProgressScreen(
 @Composable
 private fun StatCard(
     title: String,
-    value: String
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatCard(
-    title: String,
     value: String,
     modifier: Modifier
 ) {
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
             modifier = Modifier
@@ -198,13 +169,13 @@ private fun StatCard(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -216,6 +187,9 @@ private fun ProgressLineChart(series: List<Pair<Long, Int>>, height: Dp) {
     val entries = series.mapIndexed { idx, (_, minutes) ->
         Entry(idx.toFloat(), minutes.toFloat())
     }
+    val lineColor = MaterialTheme.colorScheme.secondary.toArgb()
+    val textColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val gridColor = MaterialTheme.colorScheme.surfaceVariant.toArgb()
 
     AndroidView(
         modifier = Modifier
@@ -235,17 +209,25 @@ private fun ProgressLineChart(series: List<Pair<Long, Int>>, height: Dp) {
                 axisLeft.setDrawGridLines(true)
                 setTouchEnabled(true)
                 setPinchZoom(true)
+                setNoDataText("No data")
             }
         },
         update = { chart ->
             val dataSet = LineDataSet(entries, "Minutes").apply {
-                color = Color.parseColor("#4CAF50")
-                setCircleColor(Color.parseColor("#4CAF50"))
+                color = lineColor
+                setCircleColor(lineColor)
                 lineWidth = 2f
                 circleRadius = 3f
                 setDrawValues(false)
             }
             chart.data = LineData(dataSet)
+            chart.setBackgroundColor(Color.TRANSPARENT)
+            chart.setDrawGridBackground(false)
+            chart.xAxis.textColor = textColor
+            chart.axisLeft.textColor = textColor
+            chart.axisLeft.gridColor = gridColor
+            chart.axisLeft.axisLineColor = gridColor
+            chart.xAxis.axisLineColor = gridColor
             chart.invalidate()
         }
     )

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.guidedfitness.app.data.model.DayWorkout
 import com.guidedfitness.app.data.model.WorkoutDay
 import com.guidedfitness.app.data.model.DayFocus
+import com.guidedfitness.app.ui.viewmodel.AppViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,6 +59,9 @@ fun WeeklyPlanScreen(
     planTitle: String,
     planDescription: String,
     weeklyPlan: List<DayWorkout>,
+    todayWorkout: DayWorkout?,
+    weeklyProgressByDay: Map<WorkoutDay, AppViewModel.DayProgress>,
+    weeklyCompletedDaysCount: Int,
     onNavigateToProgress: () -> Unit,
     onDayClick: (WorkoutDay) -> Unit,
     onUpdatePlanMetadata: (title: String, description: String) -> Unit,
@@ -178,6 +182,37 @@ fun WeeklyPlanScreen(
                     style = MaterialTheme.typography.headlineMedium
                 )
                 Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "This week: ${weeklyCompletedDaysCount}/7 completed",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                Spacer(Modifier.height(10.dp))
+
+                todayWorkout?.let { tw ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onDayClick(tw.day) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Today’s Workout", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "${tw.day.displayName} · ${tw.focus.displayName}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "${tw.totalDurationMinutes} min · ${tw.exercises.count { !it.youtubeLink.isNullOrBlank() }} videos",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -215,6 +250,7 @@ fun WeeklyPlanScreen(
             items(weeklyPlan) { dayWorkout ->
                 DayCard(
                     dayWorkout = dayWorkout,
+                    progress = weeklyProgressByDay[dayWorkout.day],
                     onClick = { onDayClick(dayWorkout.day) },
                     onEditFocus = { focus -> onUpdateDayFocus(dayWorkout.day, focus) },
                     onEditIcon = { key -> onUpdateDayIcon(dayWorkout.day, key) }
@@ -244,6 +280,7 @@ fun WeeklyPlanScreen(
 @Composable
 private fun DayCard(
     dayWorkout: DayWorkout,
+    progress: AppViewModel.DayProgress?,
     onClick: () -> Unit,
     onEditFocus: (DayFocus) -> Unit,
     onEditIcon: (String) -> Unit
@@ -343,6 +380,13 @@ private fun DayCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            progress?.let {
+                Text(
+                    text = if (it.completed) "Completed · ${it.minutes} min" else "${it.minutes} min",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (it.completed) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                )
+            }
             Text(
                 text = "${dayWorkout.totalDurationMinutes} min · ${dayWorkout.exercises.count { !it.youtubeLink.isNullOrBlank() }} videos",
                 style = MaterialTheme.typography.labelSmall,

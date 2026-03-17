@@ -3,33 +3,37 @@ package com.guidedfitness.app.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val GreenPrimary = Color(0xFF4CAF50)
-private val GreenLight = Color(0xFF81C784)
-private val GreenDark = Color(0xFF388E3C)
-private val TealSecondary = Color(0xFF009688)
+private val Bg = Color(0xFF121212)
+private val Card1 = Color(0xFF1E1E22)
+private val Card2 = Color(0xFF2A2A2E)
+private val Primary = Color(0xFF7B61FF)
+private val Accent = Color(0xFF4CAF50)
+private val OnDark = Color(0xFFEDEDED)
+private val OnDarkMuted = Color(0xFFB8B8B8)
 
 private val DarkColorScheme = darkColorScheme(
-    primary = GreenLight,
-    secondary = TealSecondary,
-    tertiary = GreenDark
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = GreenPrimary,
-    secondary = TealSecondary,
-    tertiary = GreenDark
+    primary = Primary,
+    secondary = Accent,
+    tertiary = Accent,
+    background = Bg,
+    surface = Card1,
+    surfaceVariant = Card2,
+    onPrimary = Color.White,
+    onSecondary = Color.Black,
+    onBackground = OnDark,
+    onSurface = OnDark,
+    onSurfaceVariant = OnDarkMuted
 )
 
 @Composable
 fun GuidedFitnessTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = if (darkTheme) DarkColorScheme else DarkColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,

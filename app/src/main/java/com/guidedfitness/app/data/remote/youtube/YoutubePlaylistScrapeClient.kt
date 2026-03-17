@@ -3,6 +3,7 @@ package com.guidedfitness.app.data.remote.youtube
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.IOException
 
 class YoutubePlaylistScrapeClient(
     private val http: OkHttpClient = OkHttpClient()
@@ -71,11 +72,21 @@ class YoutubePlaylistScrapeClient(
             .get()
             .build()
 
-        val resp = http.newCall(req).execute()
-        val ok = resp.isSuccessful
-        val body = resp.use { it.body?.string().orEmpty() }
+        val body: String
+        val httpCode: Int
+        val ok: Boolean
+        try {
+            val resp = http.newCall(req).execute()
+            ok = resp.isSuccessful
+            httpCode = resp.code
+            body = resp.use { it.body?.string().orEmpty() }
+        } catch (e: IOException) {
+            return Result.Error("No internet connection or network error. Please try again.")
+        } catch (_: Throwable) {
+            return Result.Error("Failed to load playlist. Please try again.")
+        }
 
-        if (!ok) return Result.Error("Failed to load playlist page (HTTP ${resp.code}).")
+        if (!ok) return Result.Error("Failed to load playlist page (HTTP $httpCode).")
 
         val ids = extractVideoIdsFromHtml(body)
         if (ids.isEmpty()) {

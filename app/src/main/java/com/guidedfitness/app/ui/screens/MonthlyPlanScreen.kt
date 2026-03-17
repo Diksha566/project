@@ -3,6 +3,7 @@ package com.guidedfitness.app.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,12 +18,14 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.guidedfitness.app.data.repository.local.MonthlyDay
 
@@ -52,6 +55,47 @@ fun MonthlyPlanScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                val daysWithVideos = days.count { it.videos.isNotEmpty() }
+                val totalVideos = days.sumOf { it.videos.size }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Monthly overview", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "$daysWithVideos/${days.size} days planned · $totalVideos videos",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val pct = if (days.isEmpty()) 0f else daysWithVideos / days.size.toFloat()
+                        LinearProgressIndicator(
+                            progress = { pct },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+            }
+
+            if (days.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("No monthly plan yet", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Import a playlist or add videos to start.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
             items(days) { day ->
                 Card(
                     modifier = Modifier
@@ -60,7 +104,17 @@ fun MonthlyPlanScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(day.title, style = MaterialTheme.typography.titleMedium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(day.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            Text(
+                                if (day.videos.isEmpty()) "Empty" else "Planned",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (day.videos.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.secondary
+                            )
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "${day.videos.size} videos",

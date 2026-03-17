@@ -17,7 +17,6 @@ import com.guidedfitness.app.ui.screens.PlaylistImportScreen
 import com.guidedfitness.app.ui.screens.ProgressScreen
 import com.guidedfitness.app.ui.screens.WeeklyPlanScreen
 import com.guidedfitness.app.ui.screens.WorkoutDetailScreen
-import com.guidedfitness.app.ui.screens.YoutubePlayerScreen
 
 sealed class Screen(val route: String) {
     data object WeeklyPlan : Screen("weekly_plan")
@@ -29,9 +28,6 @@ sealed class Screen(val route: String) {
     data object MonthlyPlan : Screen("monthly_plan")
     data object MonthlyDayDetail : Screen("monthly_day/{dayIndex}") {
         fun createRoute(dayIndex: Int) = "monthly_day/$dayIndex"
-    }
-    data object YoutubePlayer : Screen("youtube_player/{videoId}") {
-        fun createRoute(videoId: String) = "youtube_player/$videoId"
     }
 }
 
@@ -54,6 +50,9 @@ fun GuidedFitnessNavGraph(
                 planTitle = meta?.title ?: "My Fitness Plan",
                 planDescription = meta?.description ?: "Your weekly schedule",
                 weeklyPlan = viewModel.weeklyPlan.collectAsState(initial = emptyList()).value,
+                todayWorkout = viewModel.todayWorkout.collectAsState(initial = null).value,
+                weeklyProgressByDay = viewModel.weeklyProgressByDay.collectAsState(initial = emptyMap()).value,
+                weeklyCompletedDaysCount = viewModel.weeklyCompletedDaysCount.collectAsState(initial = 0).value,
                 onNavigateToProgress = { navController.navigate(Screen.Progress.route) },
                 onDayClick = { day -> navController.navigate(Screen.WorkoutDetail.createRoute(day)) },
                 onUpdatePlanMetadata = { title, description ->
@@ -95,7 +94,12 @@ fun GuidedFitnessNavGraph(
                 onUpsertExercise = { exercise -> viewModel.addExercise(day, exercise) },
                 onRemoveExercise = { exerciseId -> viewModel.removeExercise(day, exerciseId) },
                 onReorderExercises = { ordered -> viewModel.reorderExercises(day, ordered) },
-                onPlayYoutube = { videoId -> navController.navigate(Screen.YoutubePlayer.createRoute(videoId)) }
+                onPlayYoutube = { videoId ->
+                    // External-only: open YouTube app/browser.
+                    val ctx = navController.context
+                    val uri = android.net.Uri.parse("https://www.youtube.com/watch?v=$videoId")
+                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                }
             )
         }
         composable(Screen.Progress.route) {
@@ -157,15 +161,5 @@ fun GuidedFitnessNavGraph(
             )
         }
 
-        composable(
-            route = Screen.YoutubePlayer.route,
-            arguments = listOf(navArgument("videoId") { type = NavType.StringType })
-        ) { entry ->
-            val videoId = entry.arguments?.getString("videoId").orEmpty()
-            YoutubePlayerScreen(
-                videoId = videoId,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
     }
 }

@@ -34,6 +34,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -66,6 +69,7 @@ fun PlaylistImportScreen(
 ) {
     var url by remember { mutableStateOf("") }
     var manualVideo by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(AppViewModel.ImportPlanType.WEEKLY) }
     val context = LocalContext.current
 
     Scaffold(
@@ -101,7 +105,7 @@ fun PlaylistImportScreen(
             )
 
             Button(
-                onClick = { onGenerate(url, AppViewModel.ImportPlanType.WEEKLY) },
+                onClick = { onGenerate(url, type) },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = state !is AppViewModel.PlaylistImportState.Loading && url.isNotBlank()
             ) {
@@ -115,6 +119,16 @@ fun PlaylistImportScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        listOf("Weekly", "Monthly").forEachIndexed { idx, label ->
+                            SegmentedButton(
+                                selected = (type == AppViewModel.ImportPlanType.WEEKLY && idx == 0) ||
+                                    (type == AppViewModel.ImportPlanType.MONTHLY && idx == 1),
+                                onClick = { type = if (idx == 0) AppViewModel.ImportPlanType.WEEKLY else AppViewModel.ImportPlanType.MONTHLY },
+                                shape = SegmentedButtonDefaults.itemShape(idx, 2)
+                            ) { Text(label) }
+                        }
+                    }
                 }
                 is AppViewModel.PlaylistImportState.Loading -> {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -225,7 +239,7 @@ fun PlaylistImportScreen(
                 }
                 is AppViewModel.PlaylistImportState.Success -> {
                     Text(
-                        "Saved ${state.savedCount} videos to your weekly plan.",
+                        "Saved ${state.savedCount} videos to your plan.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.fillMaxWidth()
