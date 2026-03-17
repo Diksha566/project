@@ -2,6 +2,7 @@ package com.guidedfitness.app.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,12 +18,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
@@ -30,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.guidedfitness.app.data.model.DayWorkout
+import com.guidedfitness.app.data.model.DayFocus
 import com.guidedfitness.app.data.model.Exercise
 import com.guidedfitness.app.data.model.WorkoutDay
 
@@ -51,11 +57,24 @@ fun WorkoutDetailScreen(
     workout: DayWorkout?,
     onNavigateBack: () -> Unit,
     onMarkComplete: (minutes: Int) -> Unit,
-    onSetYoutubeVideoId: (videoId: String) -> Unit = {}
+    onSetYoutubeVideoId: (videoId: String) -> Unit = {},
+    onUpdateFocus: (focus: DayFocus) -> Unit = {},
+    onUpsertExercise: (exercise: Exercise) -> Unit = {},
+    onRemoveExercise: (exerciseId: String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showAddVideoDialog by remember { mutableStateOf(false) }
     var videoIdInput by remember { mutableStateOf("") }
+    var showEditFocusDialog by remember { mutableStateOf(false) }
+    var showExerciseDialog by remember { mutableStateOf(false) }
+    var editingExercise by remember { mutableStateOf<Exercise?>(null) }
+
+    var exName by remember { mutableStateOf("") }
+    var exDesc by remember { mutableStateOf("") }
+    var exDuration by remember { mutableStateOf("") }
+    var exRest by remember { mutableStateOf("") }
+    var exImageUrl by remember { mutableStateOf("") }
+    var exYoutube by remember { mutableStateOf("") }
 
     if (showAddVideoDialog) {
         AlertDialog(
@@ -90,6 +109,79 @@ fun WorkoutDetailScreen(
         )
     }
 
+    if (showEditFocusDialog && workout != null) {
+        AlertDialog(
+            onDismissRequest = { showEditFocusDialog = false },
+            title = { Text("Change workout type") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DayFocus.entries.forEach { focus ->
+                        Text(
+                            text = focus.displayName,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onUpdateFocus(focus)
+                                    showEditFocusDialog = false
+                                }
+                                .padding(vertical = 10.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showEditFocusDialog = false }) { Text("Close") } }
+        )
+    }
+
+    if (showExerciseDialog) {
+        AlertDialog(
+            onDismissRequest = { showExerciseDialog = false },
+            title = { Text(if (editingExercise == null) "Add exercise" else "Edit exercise") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = exName, onValueChange = { exName = it }, label = { Text("Name") })
+                    OutlinedTextField(value = exDesc, onValueChange = { exDesc = it }, label = { Text("Description") })
+                    OutlinedTextField(value = exDuration, onValueChange = { exDuration = it }, label = { Text("Duration (seconds)") })
+                    OutlinedTextField(value = exRest, onValueChange = { exRest = it }, label = { Text("Rest (seconds)") })
+                    OutlinedTextField(value = exImageUrl, onValueChange = { exImageUrl = it }, label = { Text("Image URL (optional)") })
+                    OutlinedTextField(value = exYoutube, onValueChange = { exYoutube = it }, label = { Text("YouTube link (optional)") })
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val duration = exDuration.trim().toIntOrNull() ?: 0
+                        val rest = exRest.trim().toIntOrNull() ?: 0
+                        if (exName.isNotBlank()) {
+                            val id = editingExercise?.id ?: ""
+                            onUpsertExercise(
+                                Exercise(
+                                    id = id,
+                                    name = exName.trim(),
+                                    description = exDesc.trim(),
+                                    durationSeconds = duration.coerceAtLeast(0),
+                                    restSeconds = rest.coerceAtLeast(0),
+                                    imageUrl = exImageUrl.trim().ifBlank { null },
+                                    youtubeLink = exYoutube.trim().ifBlank { null }
+                                )
+                            )
+                            showExerciseDialog = false
+                            editingExercise = null
+                        }
+                    }
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showExerciseDialog = false
+                        editingExercise = null
+                    }
+                ) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -115,11 +207,20 @@ fun WorkoutDetailScreen(
                 }
             } else {
                 item {
-                    Text(
-                        text = workout.focus.displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = workout.focus.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { showEditFocusDialog = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit workout type")
+                        }
+                    }
                     Text(
                         text = "Total: ${workout.totalDurationMinutes} min",
                         style = MaterialTheme.typography.bodyMedium,
@@ -186,10 +287,38 @@ fun WorkoutDetailScreen(
                 }
 
                 items(workout.exercises) { exercise ->
-                    ExerciseCard(exercise = exercise)
+                    ExerciseCard(
+                        exercise = exercise,
+                        onEdit = {
+                            editingExercise = exercise
+                            exName = exercise.name
+                            exDesc = exercise.description
+                            exDuration = exercise.durationSeconds.toString()
+                            exRest = exercise.restSeconds.toString()
+                            exImageUrl = exercise.imageUrl.orEmpty()
+                            exYoutube = exercise.youtubeLink.orEmpty()
+                            showExerciseDialog = true
+                        },
+                        onDelete = { onRemoveExercise(exercise.id) }
+                    )
                 }
 
                 item {
+                    Button(
+                        onClick = {
+                            editingExercise = null
+                            exName = ""
+                            exDesc = ""
+                            exDuration = "60"
+                            exRest = "30"
+                            exImageUrl = ""
+                            exYoutube = ""
+                            showExerciseDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Add exercise")
+                    }
                     Spacer(Modifier.height(16.dp))
                     FilledTonalButton(
                         onClick = { onMarkComplete(workout.totalDurationMinutes) },
@@ -204,9 +333,15 @@ fun WorkoutDetailScreen(
 }
 
 @Composable
-private fun ExerciseCard(exercise: Exercise) {
+private fun ExerciseCard(
+    exercise: Exercise,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
@@ -225,8 +360,15 @@ private fun ExerciseCard(exercise: Exercise) {
                 Spacer(Modifier.width(12.dp))
                 Text(
                     text = exercise.name,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit exercise")
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete exercise")
+                }
             }
             Text(
                 text = exercise.description,

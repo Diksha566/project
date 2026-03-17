@@ -10,13 +10,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.navArgument
 import com.guidedfitness.app.data.model.WorkoutDay
-import com.guidedfitness.app.ui.screens.LoginScreen
 import com.guidedfitness.app.ui.screens.ProgressScreen
 import com.guidedfitness.app.ui.screens.WeeklyPlanScreen
 import com.guidedfitness.app.ui.screens.WorkoutDetailScreen
 
 sealed class Screen(val route: String) {
-    data object Login : Screen("login")
     data object WeeklyPlan : Screen("weekly_plan")
     data object WorkoutDetail : Screen("workout_detail/{day}") {
         fun createRoute(day: WorkoutDay) = "workout_detail/${day.name}"
@@ -30,31 +28,34 @@ fun GuidedFitnessNavGraph(
     viewModelProvider: () -> com.guidedfitness.app.ui.viewmodel.AppViewModel
 ) {
     val viewModel = viewModelProvider()
-    val isLoggedIn by viewModel.isLoggedIn.collectAsState(initial = false)
-
-    androidx.compose.runtime.LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn) {
-            navController.navigate(Screen.WeeklyPlan.route) {
-                popUpTo(Screen.Login.route) { inclusive = true }
-            }
-        }
-    }
 
     NavHost(
         navController = navController,
-        startDestination = Screen.Login.route
+        startDestination = Screen.WeeklyPlan.route
     ) {
-        composable(Screen.Login.route) {
-            LoginScreen(
-                onLogin = { name, phone -> viewModel.login(name, phone) },
-                onLoginSuccess = { navController.navigate(Screen.WeeklyPlan.route) { popUpTo(Screen.Login.route) { inclusive = true } } }
-            )
-        }
         composable(Screen.WeeklyPlan.route) {
+            val meta = viewModel.planMetadata.collectAsState(initial = null).value
             WeeklyPlanScreen(
+                userName = viewModel.userName.collectAsState(initial = null).value,
+                userPhone = viewModel.userPhone.collectAsState(initial = null).value,
+                planTitle = meta?.title ?: "My Fitness Plan",
+                planDescription = meta?.description ?: "Your weekly schedule",
                 weeklyPlan = viewModel.weeklyPlan.collectAsState(initial = emptyList()).value,
                 onNavigateToProgress = { navController.navigate(Screen.Progress.route) },
-                onDayClick = { day -> navController.navigate(Screen.WorkoutDetail.createRoute(day)) }
+                onDayClick = { day -> navController.navigate(Screen.WorkoutDetail.createRoute(day)) },
+                onUpdatePlanMetadata = { title, description ->
+                    viewModel.updatePlanMetadata(title, description)
+                },
+                onUpdateDayFocus = { day, focus ->
+                    viewModel.updateDayFocus(day, focus)
+                },
+                onUpdateDayIcon = { day, iconKey ->
+                    viewModel.updateDayIcon(day, iconKey)
+                },
+                onUpsertProfile = { name, phone ->
+                    // WeeklyPlanScreen calls this from a coroutine scope
+                    viewModel.upsertProfile(name, phone)
+                }
             )
         }
         composable(
@@ -70,10 +71,14 @@ fun GuidedFitnessNavGraph(
                 workout = workout,
                 onNavigateBack = { navController.popBackStack() },
                 onMarkComplete = { minutes ->
-                    viewModel.recordWorkoutCompletion(minutes)
+                    val focus = workout?.focus ?: day.focus
+                    viewModel.recordWorkoutCompletion(day, focus, minutes)
                     navController.popBackStack()
                 },
-                onSetYoutubeVideoId = { videoId -> viewModel.setYoutubeVideoId(day, videoId) }
+                onSetYoutubeVideoId = { videoId -> viewModel.setYoutubeVideoId(day, videoId) },
+                onUpdateFocus = { focus -> viewModel.updateDayFocus(day, focus) },
+                onUpsertExercise = { exercise -> viewModel.addExercise(day, exercise) },
+                onRemoveExercise = { exerciseId -> viewModel.removeExercise(day, exerciseId) }
             )
         }
         composable(Screen.Progress.route) {
@@ -81,6 +86,14 @@ fun GuidedFitnessNavGraph(
                 totalSessions = viewModel.totalSessions.collectAsState(initial = 0).value,
                 totalMinutes = viewModel.totalMinutes.collectAsState(initial = 0).value,
                 streak = viewModel.streak.collectAsState(initial = 0).value,
+                longestStreak = viewModel.longestStreak.collectAsState(initial = 0).value,
+                weeklyCompletionPercent = viewModel.weeklyCompletionPercent.collectAsState(initial = 0).value,
+                breathingSessions = viewModel.breathingSessions.collectAsState(initial = 0).value,
+                workoutSessions = viewModel.workoutSessions.collectAsState(initial = 0).value,
+                dailyMinutesSeries = viewModel.dailyMinutesSeries.collectAsState(initial = emptyList()).value,
+                weeklyMinutesSeries = viewModel.weeklyMinutesSeries.collectAsState(initial = emptyList()).value,
+                monthlyMinutesSeries = viewModel.monthlyMinutesSeries.collectAsState(initial = emptyList()).value,
+                yearlyMinutesSeries = viewModel.yearlyMinutesSeries.collectAsState(initial = emptyList()).value,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

@@ -9,7 +9,8 @@ data class DayWorkout(
     val exercises: List<Exercise>,
     val youtubeVideoId: String? = null,
     val totalDurationMinutes: Int,
-    val customFocus: DayFocus? = null
+    val customFocus: DayFocus? = null,
+    val iconKey: String = ""
 ) {
     val focus: DayFocus get() = customFocus ?: day.focus
 }

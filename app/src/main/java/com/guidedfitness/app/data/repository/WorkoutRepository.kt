@@ -9,9 +9,9 @@ import kotlinx.coroutines.flow.Flow
 interface WorkoutRepository {
     fun getWeeklyPlan(): Flow<List<DayWorkout>>
     fun getDayWorkout(day: WorkoutDay): Flow<DayWorkout?>
-    fun updateDayWorkout(dayWorkout: DayWorkout)
-    fun addExercise(day: WorkoutDay, exercise: Exercise)
-    fun removeExercise(day: WorkoutDay, exerciseId: String)
-    fun updateDayFocus(day: WorkoutDay, focus: DayFocus)
-    fun setYoutubeVideoId(day: WorkoutDay, videoId: String?)
+    suspend fun updateDayWorkout(dayWorkout: DayWorkout)
+    suspend fun addExercise(day: WorkoutDay, exercise: Exercise)
+    suspend fun removeExercise(day: WorkoutDay, exerciseId: String)
+    suspend fun updateDayFocus(day: WorkoutDay, focus: DayFocus)
+    suspend fun setYoutubeVideoId(day: WorkoutDay, videoId: String?)
 }

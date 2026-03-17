@@ -16,11 +16,10 @@ class UserRepository(private val context: Context) {
     companion object {
         private val NAME = stringPreferencesKey("name")
         private val PHONE = stringPreferencesKey("phone")
-        private val IS_LOGGED_IN = stringPreferencesKey("is_logged_in")
     }
 
-    val isLoggedIn: Flow<Boolean> = context.userDataStore.data.map { prefs ->
-        prefs[IS_LOGGED_IN] == "true"
+    val hasProfile: Flow<Boolean> = context.userDataStore.data.map { prefs ->
+        !prefs[PHONE].isNullOrBlank()
     }
 
     val userName: Flow<String?> = context.userDataStore.data.map { prefs ->
@@ -31,15 +30,14 @@ class UserRepository(private val context: Context) {
         prefs[PHONE]
     }
 
-    suspend fun login(name: String, phone: String) {
+    suspend fun upsertProfile(name: String, phone: String) {
         context.userDataStore.edit { prefs ->
             prefs[NAME] = name
             prefs[PHONE] = phone
-            prefs[IS_LOGGED_IN] = "true"
         }
     }
 
-    suspend fun logout() {
+    suspend fun clearProfile() {
         context.userDataStore.edit { prefs ->
             prefs.clear()
         }
