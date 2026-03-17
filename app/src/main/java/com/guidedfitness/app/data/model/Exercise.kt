@@ -10,5 +10,6 @@ data class Exercise(
     val durationSeconds: Int,
     val restSeconds: Int,
     val imageResId: Int? = null,
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val youtubeLink: String? = null
 )
