@@ -304,55 +304,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return null
     }
 
-    private fun distributePreservingOrder(
-        videos: List<PlaylistVideo>,
-        daysCount: Int
-    ): List<List<PlaylistVideo>> {
-        if (daysCount <= 0) return emptyList()
-        if (videos.isEmpty()) return List(daysCount) { emptyList() }
-
-        val total = videos.size
-        val base = total / daysCount
-        val remainder = total % daysCount
-        val raw = (0 until daysCount).map { i -> base + if (i < remainder) 1 else 0 }.toMutableList()
-
-        // Nudge toward 2..5 when possible, but never drop/duplicate videos.
-        var safety = 0
-        while (raw.any { it < 2 } && raw.any { it > 5 } && safety < 1000) {
-            safety += 1
-            val from = raw.indexOfFirst { it > 5 }.takeIf { it >= 0 } ?: break
-            val to = raw.indexOfFirst { it < 2 }.takeIf { it >= 0 } ?: break
-            raw[from] -= 1
-            raw[to] += 1
-        }
-        // If we can, raise <2 up to 2 by borrowing from >2.
-        safety = 0
-        while (raw.any { it < 2 } && raw.any { it > 2 } && safety < 2000) {
-            safety += 1
-            val to = raw.indexOfFirst { it < 2 }.takeIf { it >= 0 } ?: break
-            val from = raw.indexOfFirst { it > 2 }.takeIf { it >= 0 } ?: break
-            raw[from] -= 1
-            raw[to] += 1
-        }
-        // If still some days <2, playlist is too small; we'll accept 0/1 on the tail.
-
-        val out = ArrayList<List<PlaylistVideo>>(daysCount)
-        var cursor = 0
-        for (i in 0 until daysCount) {
-            val n = raw[i].coerceAtLeast(0)
-            val end = (cursor + n).coerceAtMost(total)
-            out += videos.subList(cursor, end)
-            cursor = end
-        }
-        // Any remaining (due to rounding) append to last day.
-        if (cursor < total && out.isNotEmpty()) {
-            val last = out.last().toMutableList()
-            last += videos.subList(cursor, total)
-            out[out.lastIndex] = last
-        }
-        return out
-    }
-
     private val logsFlow = userIdFlow
         .filterNotNull()
         .flatMapLatest { userId -> progressRepo.observeLogs(userId) }

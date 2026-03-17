@@ -329,7 +329,8 @@ fun WorkoutDetailScreen(
                                 onReorderExercises(newOrder.map { it.id })
                             }
                         },
-                        onDelete = { onRemoveExercise(exercise.id) }
+                        onDelete = { onRemoveExercise(exercise.id) },
+                        onPlayYoutube = onPlayYoutube
                     )
                 }
 
@@ -368,7 +369,8 @@ private fun ExerciseCard(
     onEdit: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onPlayYoutube: (videoId: String) -> Unit
 ) {
     Card(
         modifier = Modifier
