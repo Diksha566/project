@@ -183,7 +183,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 dayIndex = i,
                 videos = list.mapIndexed { idx, v ->
                     MonthlyVideo(
-                        id = "${userId}_${i}_$idx_${v.videoUrl.hashCode()}",
+                        id = "${userId}_${i}_${idx}_${v.videoUrl.hashCode()}",
                         title = v.title,
                         thumbnailUrl = v.thumbnailUrl,
                         videoUrl = v.videoUrl
