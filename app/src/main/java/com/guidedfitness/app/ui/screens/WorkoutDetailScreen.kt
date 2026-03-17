@@ -20,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
@@ -60,7 +62,8 @@ fun WorkoutDetailScreen(
     onSetYoutubeVideoId: (videoId: String) -> Unit = {},
     onUpdateFocus: (focus: DayFocus) -> Unit = {},
     onUpsertExercise: (exercise: Exercise) -> Unit = {},
-    onRemoveExercise: (exerciseId: String) -> Unit = {}
+    onRemoveExercise: (exerciseId: String) -> Unit = {},
+    onReorderExercises: (orderedExerciseIds: List<String>) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showAddVideoDialog by remember { mutableStateOf(false) }
@@ -289,6 +292,8 @@ fun WorkoutDetailScreen(
                 items(workout.exercises) { exercise ->
                     ExerciseCard(
                         exercise = exercise,
+                        canMoveUp = workout.exercises.firstOrNull()?.id != exercise.id,
+                        canMoveDown = workout.exercises.lastOrNull()?.id != exercise.id,
                         onEdit = {
                             editingExercise = exercise
                             exName = exercise.name
@@ -298,6 +303,24 @@ fun WorkoutDetailScreen(
                             exImageUrl = exercise.imageUrl.orEmpty()
                             exYoutube = exercise.youtubeLink.orEmpty()
                             showExerciseDialog = true
+                        },
+                        onMoveUp = {
+                            val idx = workout.exercises.indexOfFirst { it.id == exercise.id }
+                            if (idx > 0) {
+                                val newOrder = workout.exercises.toMutableList()
+                                newOrder.removeAt(idx)
+                                newOrder.add(idx - 1, exercise)
+                                onReorderExercises(newOrder.map { it.id })
+                            }
+                        },
+                        onMoveDown = {
+                            val idx = workout.exercises.indexOfFirst { it.id == exercise.id }
+                            if (idx >= 0 && idx < workout.exercises.lastIndex) {
+                                val newOrder = workout.exercises.toMutableList()
+                                newOrder.removeAt(idx)
+                                newOrder.add(idx + 1, exercise)
+                                onReorderExercises(newOrder.map { it.id })
+                            }
                         },
                         onDelete = { onRemoveExercise(exercise.id) }
                     )
@@ -335,7 +358,11 @@ fun WorkoutDetailScreen(
 @Composable
 private fun ExerciseCard(
     exercise: Exercise,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     onEdit: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -365,6 +392,12 @@ private fun ExerciseCard(
                 )
                 IconButton(onClick = onEdit) {
                     Icon(Icons.Default.Edit, contentDescription = "Edit exercise")
+                }
+                IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
+                }
+                IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete exercise")

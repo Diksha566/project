@@ -110,6 +110,35 @@ class LocalPlanRepository(
         exerciseDao.upsert(entity)
     }
 
+    suspend fun replaceExercises(day: WorkoutDay, exercises: List<Exercise>) {
+        val now = System.currentTimeMillis()
+        val workoutId = workoutId(day)
+        exerciseDao.deleteForWorkout(workoutId)
+        exerciseDao.upsertAll(
+            exercises.mapIndexed { idx, ex ->
+                ExerciseEntity(
+                    exerciseId = ex.id.ifBlank { UUID.randomUUID().toString() },
+                    workoutId = workoutId,
+                    name = ex.name,
+                    description = ex.description,
+                    durationSeconds = ex.durationSeconds,
+                    restSeconds = ex.restSeconds,
+                    imageUrl = ex.imageUrl,
+                    youtubeLink = ex.youtubeLink,
+                    orderIndex = idx,
+                    updatedAt = now
+                )
+            }
+        )
+    }
+
+    suspend fun reorderExercises(day: WorkoutDay, orderedExerciseIds: List<String>) {
+        val now = System.currentTimeMillis()
+        orderedExerciseIds.forEachIndexed { idx, id ->
+            exerciseDao.updateOrder(id, idx, now)
+        }
+    }
+
     suspend fun deleteExercise(exerciseId: String) {
         exerciseDao.deleteById(exerciseId)
     }

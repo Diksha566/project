@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
@@ -26,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +63,9 @@ fun WeeklyPlanScreen(
     onUpdatePlanMetadata: (title: String, description: String) -> Unit,
     onUpdateDayFocus: (day: WorkoutDay, focus: DayFocus) -> Unit,
     onUpdateDayIcon: (day: WorkoutDay, iconKey: String) -> Unit,
-    onUpsertProfile: suspend (name: String, phone: String) -> Unit
+    onUpsertProfile: suspend (name: String, phone: String) -> Unit,
+    onImportFromYoutubePlaylist: () -> Unit,
+    onNavigateToMonthlyPlan: () -> Unit
 ) {
     var showEditMeta by remember { mutableStateOf(false) }
     var titleInput by remember(planTitle) { mutableStateOf(planTitle) }
@@ -147,6 +151,9 @@ fun WeeklyPlanScreen(
             TopAppBar(
                 title = { Text("Weekly Plan") },
                 actions = {
+                    IconButton(onClick = onNavigateToMonthlyPlan) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = "Monthly plan")
+                    }
                     IconButton(onClick = { showProfile = true }) {
                         Icon(Icons.Default.Person, contentDescription = "Profile")
                     }
@@ -196,6 +203,13 @@ fun WeeklyPlanScreen(
                             }
                         }
                     }
+                }
+                Spacer(Modifier.height(12.dp))
+                FilledTonalButton(
+                    onClick = onImportFromYoutubePlaylist,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Import from YouTube Playlist")
                 }
             }
             items(weeklyPlan) { dayWorkout ->
@@ -330,7 +344,7 @@ private fun DayCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "${dayWorkout.totalDurationMinutes} min · ${dayWorkout.exercises.size} exercises",
+                text = "${dayWorkout.totalDurationMinutes} min · ${dayWorkout.exercises.count { !it.youtubeLink.isNullOrBlank() }} videos",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary
             )

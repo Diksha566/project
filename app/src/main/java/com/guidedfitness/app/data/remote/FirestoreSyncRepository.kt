@@ -6,6 +6,8 @@ import com.google.firebase.firestore.SetOptions
 import com.guidedfitness.app.data.local.AppDatabase
 import com.guidedfitness.app.data.local.entity.DayWorkoutEntity
 import com.guidedfitness.app.data.local.entity.ExerciseEntity
+import com.guidedfitness.app.data.local.entity.MonthlyDayEntity
+import com.guidedfitness.app.data.local.entity.MonthlyVideoEntity
 import com.guidedfitness.app.data.local.entity.PlanMetadataEntity
 import kotlinx.coroutines.tasks.await
 
@@ -93,6 +95,51 @@ class FirestoreSyncRepository(
             }
             db.exerciseDao().upsertAll(exEntities)
         }
+
+        // monthly plan (30-day)
+        val monthlyDaysSnap = fs.collection("plans").document(userId).collection("monthlyDays").get().await()
+        val monthlyDayEntities = monthlyDaysSnap.documents.mapNotNull { doc ->
+            val dayIndex = (doc.getLong("dayIndex") ?: return@mapNotNull null).toInt()
+            val title2 = doc.getString("title") ?: "Day $dayIndex"
+            val updatedAt2 = doc.getLong("updatedAt") ?: 0L
+            MonthlyDayEntity(
+                dayId = "${userId}_${dayIndex}",
+                userId = userId,
+                dayIndex = dayIndex,
+                title = title2,
+                updatedAt = updatedAt2
+            )
+        }
+        monthlyDayEntities.forEach { db.monthlyPlanDao().upsertDay(it) }
+
+        monthlyDayEntities.forEach { dayEntity ->
+            val vidsSnap = fs.collection("plans")
+                .document(userId)
+                .collection("monthlyDays")
+                .document(dayEntity.dayIndex.toString())
+                .collection("videos")
+                .get()
+                .await()
+
+            val vids = vidsSnap.documents.mapNotNull { vdoc ->
+                val title3 = vdoc.getString("title") ?: return@mapNotNull null
+                val url = vdoc.getString("videoUrl") ?: return@mapNotNull null
+                val thumb = vdoc.getString("thumbnailUrl")
+                val orderIndex = (vdoc.getLong("orderIndex") ?: 0L).toInt()
+                val updatedAt3 = vdoc.getLong("updatedAt") ?: 0L
+                MonthlyVideoEntity(
+                    videoId = vdoc.id,
+                    dayId = dayEntity.dayId,
+                    title = title3,
+                    thumbnailUrl = thumb,
+                    videoUrl = url,
+                    orderIndex = orderIndex,
+                    updatedAt = updatedAt3
+                )
+            }
+            db.monthlyPlanDao().deleteVideosForDay(dayEntity.dayId)
+            db.monthlyPlanDao().upsertVideos(vids)
+        }
     }
 
     suspend fun syncUp(userId: String) {
@@ -142,6 +189,38 @@ class FirestoreSyncRepository(
                         "youtubeLink" to ex.youtubeLink,
                         "orderIndex" to ex.orderIndex,
                         "updatedAt" to ex.updatedAt
+                    ),
+                    SetOptions.merge()
+                ).await()
+            }
+        }
+
+        // monthly plan
+        val monthlyDays = db.monthlyPlanDao().getDays(userId)
+        monthlyDays.forEach { day ->
+            val dayDoc = fs.collection("plans")
+                .document(userId)
+                .collection("monthlyDays")
+                .document(day.dayIndex.toString())
+
+            dayDoc.set(
+                mapOf(
+                    "dayIndex" to day.dayIndex,
+                    "title" to day.title,
+                    "updatedAt" to day.updatedAt
+                ),
+                SetOptions.merge()
+            ).await()
+
+            val vids = db.monthlyPlanDao().getVideosForDay(day.dayId)
+            vids.forEach { v ->
+                dayDoc.collection("videos").document(v.videoId).set(
+                    mapOf(
+                        "title" to v.title,
+                        "thumbnailUrl" to v.thumbnailUrl,
+                        "videoUrl" to v.videoUrl,
+                        "orderIndex" to v.orderIndex,
+                        "updatedAt" to v.updatedAt
                     ),
                     SetOptions.merge()
                 ).await()

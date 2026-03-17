@@ -1,6 +1,7 @@
 package com.guidedfitness.app.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -10,6 +11,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.navArgument
 import com.guidedfitness.app.data.model.WorkoutDay
+import com.guidedfitness.app.ui.screens.MonthlyDayDetailScreen
+import com.guidedfitness.app.ui.screens.MonthlyPlanScreen
+import com.guidedfitness.app.ui.screens.PlaylistImportScreen
 import com.guidedfitness.app.ui.screens.ProgressScreen
 import com.guidedfitness.app.ui.screens.WeeklyPlanScreen
 import com.guidedfitness.app.ui.screens.WorkoutDetailScreen
@@ -20,6 +24,11 @@ sealed class Screen(val route: String) {
         fun createRoute(day: WorkoutDay) = "workout_detail/${day.name}"
     }
     data object Progress : Screen("progress")
+    data object PlaylistImport : Screen("playlist_import")
+    data object MonthlyPlan : Screen("monthly_plan")
+    data object MonthlyDayDetail : Screen("monthly_day/{dayIndex}") {
+        fun createRoute(dayIndex: Int) = "monthly_day/$dayIndex"
+    }
 }
 
 @Composable
@@ -55,7 +64,9 @@ fun GuidedFitnessNavGraph(
                 onUpsertProfile = { name, phone ->
                     // WeeklyPlanScreen calls this from a coroutine scope
                     viewModel.upsertProfile(name, phone)
-                }
+                },
+                onImportFromYoutubePlaylist = { navController.navigate(Screen.PlaylistImport.route) },
+                onNavigateToMonthlyPlan = { navController.navigate(Screen.MonthlyPlan.route) }
             )
         }
         composable(
@@ -78,7 +89,8 @@ fun GuidedFitnessNavGraph(
                 onSetYoutubeVideoId = { videoId -> viewModel.setYoutubeVideoId(day, videoId) },
                 onUpdateFocus = { focus -> viewModel.updateDayFocus(day, focus) },
                 onUpsertExercise = { exercise -> viewModel.addExercise(day, exercise) },
-                onRemoveExercise = { exerciseId -> viewModel.removeExercise(day, exerciseId) }
+                onRemoveExercise = { exerciseId -> viewModel.removeExercise(day, exerciseId) },
+                onReorderExercises = { ordered -> viewModel.reorderExercises(day, ordered) }
             )
         }
         composable(Screen.Progress.route) {
@@ -95,6 +107,47 @@ fun GuidedFitnessNavGraph(
                 monthlyMinutesSeries = viewModel.monthlyMinutesSeries.collectAsState(initial = emptyList()).value,
                 yearlyMinutesSeries = viewModel.yearlyMinutesSeries.collectAsState(initial = emptyList()).value,
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.PlaylistImport.route) {
+            val state by viewModel.playlistImportState.collectAsState()
+            PlaylistImportScreen(
+                state = state,
+                onNavigateBack = { navController.popBackStack() },
+                onGenerate = { url, type -> viewModel.importFromYoutubePlaylist(url, type) },
+                onResetState = { viewModel.resetPlaylistImportState() }
+            )
+            LaunchedEffect(state) {
+                val s = state
+                if (s is com.guidedfitness.app.ui.viewmodel.AppViewModel.PlaylistImportState.Success &&
+                    s.type == com.guidedfitness.app.ui.viewmodel.AppViewModel.ImportPlanType.MONTHLY
+                ) {
+                    navController.navigate(Screen.MonthlyPlan.route)
+                }
+            }
+        }
+
+        composable(Screen.MonthlyPlan.route) {
+            MonthlyPlanScreen(
+                days = viewModel.monthlyPlan.collectAsState(initial = emptyList()).value,
+                onNavigateBack = { navController.popBackStack() },
+                onDayClick = { dayIndex -> navController.navigate(Screen.MonthlyDayDetail.createRoute(dayIndex)) }
+            )
+        }
+
+        composable(
+            route = Screen.MonthlyDayDetail.route,
+            arguments = listOf(navArgument("dayIndex") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val dayIndex = backStackEntry.arguments?.getInt("dayIndex") ?: 1
+            val day = viewModel.getMonthlyDay(dayIndex).collectAsState(initial = null).value
+            MonthlyDayDetailScreen(
+                day = day,
+                onNavigateBack = { navController.popBackStack() },
+                onAddVideo = { title, url -> viewModel.addMonthlyVideo(dayIndex, title, url) },
+                onRemoveVideo = { videoId -> viewModel.removeMonthlyVideo(videoId) },
+                onReorder = { ordered -> viewModel.reorderMonthlyVideos(dayIndex, ordered) }
             )
         }
     }

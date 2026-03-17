@@ -18,6 +18,12 @@ interface ExerciseDao {
     @Query("DELETE FROM exercises WHERE exerciseId = :exerciseId")
     suspend fun deleteById(exerciseId: String)
 
+    @Query("DELETE FROM exercises WHERE workoutId = :workoutId")
+    suspend fun deleteForWorkout(workoutId: String)
+
+    @Query("UPDATE exercises SET orderIndex = :orderIndex, updatedAt = :updatedAt WHERE exerciseId = :exerciseId")
+    suspend fun updateOrder(exerciseId: String, orderIndex: Int, updatedAt: Long)
+
     @Query("SELECT * FROM exercises WHERE workoutId = :workoutId ORDER BY orderIndex ASC")
     fun observeForWorkout(workoutId: String): Flow<List<ExerciseEntity>>
 

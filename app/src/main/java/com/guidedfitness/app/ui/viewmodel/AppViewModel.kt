@@ -3,21 +3,29 @@ package com.guidedfitness.app.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.guidedfitness.app.BuildConfig
 import com.guidedfitness.app.data.model.Exercise
 import com.guidedfitness.app.data.model.WorkoutDay
 import com.guidedfitness.app.data.model.DayFocus
 import com.guidedfitness.app.data.repository.UserRepository
 import com.guidedfitness.app.data.local.AppDatabase
+import com.guidedfitness.app.data.remote.youtube.PlaylistVideo
+import com.guidedfitness.app.data.remote.youtube.YoutubePlaylistClient
 import com.guidedfitness.app.data.remote.FirestoreSyncRepository
 import com.guidedfitness.app.data.repository.local.DefaultPlanSeeder
 import com.guidedfitness.app.data.repository.local.LocalPlanRepository
+import com.guidedfitness.app.data.repository.local.LocalMonthlyPlanRepository
+import com.guidedfitness.app.data.repository.local.MonthlyVideo
 import com.guidedfitness.app.data.repository.local.LocalProgressRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -25,6 +33,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getInstance(application)
     private val syncRepo = FirestoreSyncRepository(db)
     private val progressRepo = LocalProgressRepository(db.progressDao())
+    private val youtubeClient = YoutubePlaylistClient(apiKey = BuildConfig.YOUTUBE_API_KEY)
 
     private fun normalizeUserId(phone: String): String =
         phone.filter { it.isDigit() }.ifBlank { phone.trim() }
@@ -43,6 +52,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             planDao = db.planDao(),
             exerciseDao = db.exerciseDao(),
             seeder = DefaultPlanSeeder(db.planDao(), db.exerciseDao())
+        )
+
+    private fun monthlyRepo(userId: String): LocalMonthlyPlanRepository =
+        LocalMonthlyPlanRepository(
+            userId = userId,
+            dao = db.monthlyPlanDao()
         )
 
     val userName = userRepo.userName.stateIn(
@@ -81,6 +96,164 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
+    val monthlyPlan = userIdFlow
+        .filterNotNull()
+        .flatMapLatest { userId ->
+            viewModelScope.launch { monthlyRepo(userId).ensureSeeded(30) }
+            monthlyRepo(userId).observeMonthlyPlan()
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    sealed class PlaylistImportState {
+        data object Idle : PlaylistImportState()
+        data object Loading : PlaylistImportState()
+        data class Error(val message: String) : PlaylistImportState()
+        data class Success(val importedCount: Int, val type: ImportPlanType) : PlaylistImportState()
+    }
+
+    val playlistImportState = MutableStateFlow<PlaylistImportState>(PlaylistImportState.Idle)
+
+    enum class ImportPlanType { WEEKLY, MONTHLY }
+
+    fun resetPlaylistImportState() {
+        playlistImportState.value = PlaylistImportState.Idle
+    }
+
+    fun importFromYoutubePlaylist(url: String, type: ImportPlanType) {
+        viewModelScope.launch {
+            val userId = userIdFlow.value ?: return@launch
+            playlistImportState.value = PlaylistImportState.Loading
+
+            val playlistId = youtubeClient.parsePlaylistId(url)
+            if (playlistId == null) {
+                playlistImportState.value = PlaylistImportState.Error("Invalid playlist URL.")
+                return@launch
+            }
+
+            val result = withContext(Dispatchers.IO) {
+                youtubeClient.fetchAllPlaylistVideos(playlistId)
+            }
+
+            when (result) {
+                is YoutubePlaylistClient.Result.Error -> {
+                    playlistImportState.value = PlaylistImportState.Error(result.message)
+                }
+                is YoutubePlaylistClient.Result.Success -> {
+                    val videos = result.videos
+                    when (type) {
+                        ImportPlanType.WEEKLY -> {
+                            planRepo(userId).ensureSeeded()
+                            applyWeeklyPlaylist(userId, videos)
+                        }
+                        ImportPlanType.MONTHLY -> {
+                            monthlyRepo(userId).ensureSeeded(30)
+                            applyMonthlyPlaylist(userId, videos, days = 30)
+                        }
+                    }
+                    syncRepo.syncUp(userId)
+                    playlistImportState.value = PlaylistImportState.Success(videos.size, type)
+                }
+            }
+        }
+    }
+
+    private suspend fun applyWeeklyPlaylist(userId: String, videos: List<PlaylistVideo>) {
+        val repo = planRepo(userId)
+        val days = WorkoutDay.entries.toList()
+        val chunks = distributePreservingOrder(videos, daysCount = days.size)
+        days.forEachIndexed { idx, day ->
+            val list = chunks.getOrElse(idx) { emptyList() }
+            repo.replaceExercises(
+                day = day,
+                exercises = list.map { it.toExercise() }
+            )
+        }
+    }
+
+    private suspend fun applyMonthlyPlaylist(userId: String, videos: List<PlaylistVideo>, days: Int) {
+        val repo = monthlyRepo(userId)
+        val chunks = distributePreservingOrder(videos, daysCount = days)
+        for (i in 1..days) {
+            val list = chunks.getOrElse(i - 1) { emptyList() }
+            repo.replaceDayVideos(
+                dayIndex = i,
+                videos = list.mapIndexed { idx, v ->
+                    MonthlyVideo(
+                        id = "${userId}_${i}_$idx_${v.videoUrl.hashCode()}",
+                        title = v.title,
+                        thumbnailUrl = v.thumbnailUrl,
+                        videoUrl = v.videoUrl
+                    )
+                }
+            )
+        }
+    }
+
+    private fun PlaylistVideo.toExercise(): Exercise =
+        Exercise(
+            id = "",
+            name = title,
+            description = "",
+            durationSeconds = 0,
+            restSeconds = 0,
+            imageResId = null,
+            imageUrl = thumbnailUrl,
+            youtubeLink = videoUrl
+        )
+
+    private fun distributePreservingOrder(
+        videos: List<PlaylistVideo>,
+        daysCount: Int
+    ): List<List<PlaylistVideo>> {
+        if (daysCount <= 0) return emptyList()
+        if (videos.isEmpty()) return List(daysCount) { emptyList() }
+
+        val total = videos.size
+        val base = total / daysCount
+        val remainder = total % daysCount
+        val raw = (0 until daysCount).map { i -> base + if (i < remainder) 1 else 0 }.toMutableList()
+
+        // Nudge toward 2..5 when possible, but never drop/duplicate videos.
+        var safety = 0
+        while (raw.any { it < 2 } && raw.any { it > 5 } && safety < 1000) {
+            safety += 1
+            val from = raw.indexOfFirst { it > 5 }.takeIf { it >= 0 } ?: break
+            val to = raw.indexOfFirst { it < 2 }.takeIf { it >= 0 } ?: break
+            raw[from] -= 1
+            raw[to] += 1
+        }
+        // If we can, raise <2 up to 2 by borrowing from >2.
+        safety = 0
+        while (raw.any { it < 2 } && raw.any { it > 2 } && safety < 2000) {
+            safety += 1
+            val to = raw.indexOfFirst { it < 2 }.takeIf { it >= 0 } ?: break
+            val from = raw.indexOfFirst { it > 2 }.takeIf { it >= 0 } ?: break
+            raw[from] -= 1
+            raw[to] += 1
+        }
+        // If still some days <2, playlist is too small; we'll accept 0/1 on the tail.
+
+        val out = ArrayList<List<PlaylistVideo>>(daysCount)
+        var cursor = 0
+        for (i in 0 until daysCount) {
+            val n = raw[i].coerceAtLeast(0)
+            val end = (cursor + n).coerceAtMost(total)
+            out += videos.subList(cursor, end)
+            cursor = end
+        }
+        // Any remaining (due to rounding) append to last day.
+        if (cursor < total && out.isNotEmpty()) {
+            val last = out.last().toMutableList()
+            last += videos.subList(cursor, total)
+            out[out.lastIndex] = last
+        }
+        return out
+    }
+
     private val logsFlow = userIdFlow
         .filterNotNull()
         .flatMapLatest { userId -> progressRepo.observeLogs(userId) }
@@ -115,6 +288,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun getDayWorkout(day: WorkoutDay) =
         userIdFlow.filterNotNull().flatMapLatest { userId ->
             planRepo(userId).getDayWorkout(day)
+        }
+
+    fun getMonthlyDay(dayIndex: Int) =
+        userIdFlow.filterNotNull().flatMapLatest { userId ->
+            monthlyRepo(userId).observeDay(dayIndex)
         }
 
     fun recordWorkoutCompletion(day: WorkoutDay, focus: DayFocus, minutes: Int) {
@@ -162,6 +340,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val userId = userIdFlow.value ?: return@launch
             planRepo(userId).removeExercise(day, exerciseId)
+            syncRepo.syncUp(userId)
+        }
+    }
+
+    fun reorderExercises(day: WorkoutDay, orderedExerciseIds: List<String>) {
+        viewModelScope.launch {
+            val userId = userIdFlow.value ?: return@launch
+            planRepo(userId).reorderExercises(day, orderedExerciseIds)
+            syncRepo.syncUp(userId)
+        }
+    }
+
+    fun addMonthlyVideo(dayIndex: Int, title: String, url: String, thumbnailUrl: String? = null) {
+        viewModelScope.launch {
+            val userId = userIdFlow.value ?: return@launch
+            monthlyRepo(userId).addVideo(
+                dayIndex = dayIndex,
+                video = MonthlyVideo(
+                    id = "",
+                    title = title.trim(),
+                    thumbnailUrl = thumbnailUrl,
+                    videoUrl = url.trim()
+                )
+            )
+            syncRepo.syncUp(userId)
+        }
+    }
+
+    fun removeMonthlyVideo(videoId: String) {
+        viewModelScope.launch {
+            val userId = userIdFlow.value ?: return@launch
+            monthlyRepo(userId).removeVideo(videoId)
+            syncRepo.syncUp(userId)
+        }
+    }
+
+    fun reorderMonthlyVideos(dayIndex: Int, orderedVideoIds: List<String>) {
+        viewModelScope.launch {
+            val userId = userIdFlow.value ?: return@launch
+            monthlyRepo(userId).reorderDayVideos(dayIndex, orderedVideoIds)
             syncRepo.syncUp(userId)
         }
     }
