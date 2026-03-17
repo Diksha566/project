@@ -3,14 +3,12 @@ package com.guidedfitness.app.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.guidedfitness.app.BuildConfig
 import com.guidedfitness.app.data.model.Exercise
 import com.guidedfitness.app.data.model.WorkoutDay
 import com.guidedfitness.app.data.model.DayFocus
 import com.guidedfitness.app.data.repository.UserRepository
 import com.guidedfitness.app.data.local.AppDatabase
-import com.guidedfitness.app.data.remote.youtube.PlaylistVideo
-import com.guidedfitness.app.data.remote.youtube.YoutubePlaylistClient
+import com.guidedfitness.app.data.remote.youtube.YoutubePlaylistScrapeClient
 import com.guidedfitness.app.data.remote.FirestoreSyncRepository
 import com.guidedfitness.app.data.repository.local.DefaultPlanSeeder
 import com.guidedfitness.app.data.repository.local.LocalPlanRepository
@@ -33,7 +31,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getInstance(application)
     private val syncRepo = FirestoreSyncRepository(db)
     private val progressRepo = LocalProgressRepository(db.progressDao())
-    private val youtubeClient = YoutubePlaylistClient(apiKey = BuildConfig.YOUTUBE_API_KEY)
+    private val playlistScraper = YoutubePlaylistScrapeClient()
 
     private fun normalizeUserId(phone: String): String =
         phone.filter { it.isDigit() }.ifBlank { phone.trim() }
@@ -108,11 +106,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
+    data class DraftPlaylistVideo(
+        val videoId: String,
+        val title: String,
+        val description: String,
+        val thumbnailUrl: String?,
+        val assignedDay: WorkoutDay
+    )
+
     sealed class PlaylistImportState {
         data object Idle : PlaylistImportState()
         data object Loading : PlaylistImportState()
         data class Error(val message: String) : PlaylistImportState()
-        data class Success(val importedCount: Int, val type: ImportPlanType) : PlaylistImportState()
+        data class Preview(
+            val playlistUrl: String,
+            val items: List<DraftPlaylistVideo>
+        ) : PlaylistImportState()
+
+        data class Success(val savedCount: Int) : PlaylistImportState()
     }
 
     val playlistImportState = MutableStateFlow<PlaylistImportState>(PlaylistImportState.Idle)
@@ -128,82 +139,170 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val userId = userIdFlow.value ?: return@launch
             playlistImportState.value = PlaylistImportState.Loading
 
-            val playlistId = youtubeClient.parsePlaylistId(url)
-            if (playlistId == null) {
-                playlistImportState.value = PlaylistImportState.Error("Invalid playlist URL.")
+            // Non-API import is currently supported for WEEKLY only.
+            if (type != ImportPlanType.WEEKLY) {
+                playlistImportState.value = PlaylistImportState.Error("Monthly import without API isn’t supported yet.")
                 return@launch
             }
 
             val result = withContext(Dispatchers.IO) {
-                youtubeClient.fetchAllPlaylistVideos(playlistId)
+                playlistScraper.fetchPlaylistVideoIds(url)
             }
 
             when (result) {
-                is YoutubePlaylistClient.Result.Error -> {
+                is YoutubePlaylistScrapeClient.Result.Error -> {
                     playlistImportState.value = PlaylistImportState.Error(result.message)
                 }
-                is YoutubePlaylistClient.Result.Success -> {
-                    val videos = result.videos
-                    when (type) {
-                        ImportPlanType.WEEKLY -> {
-                            planRepo(userId).ensureSeeded()
-                            applyWeeklyPlaylist(userId, videos)
-                        }
-                        ImportPlanType.MONTHLY -> {
-                            monthlyRepo(userId).ensureSeeded(30)
-                            applyMonthlyPlaylist(userId, videos, days = 30)
-                        }
+                is YoutubePlaylistScrapeClient.Result.Success -> {
+                    val ids = result.videoIds
+                    val orderedDays = weeklyDaysSundayFirst()
+                    val assigned = distributeIdsSundayFirst(ids, orderedDays)
+
+                    val items = assigned.mapIndexed { idx, pair ->
+                        val (day, videoId) = pair
+                        DraftPlaylistVideo(
+                            videoId = videoId,
+                            title = "Video ${idx + 1}",
+                            description = "",
+                            thumbnailUrl = runCatching { playlistScraper.videoThumbnailUrl(videoId) }.getOrNull(),
+                            assignedDay = day
+                        )
                     }
-                    syncRepo.syncUp(userId)
-                    playlistImportState.value = PlaylistImportState.Success(videos.size, type)
+                    playlistImportState.value = PlaylistImportState.Preview(
+                        playlistUrl = result.playlistUrl,
+                        items = items
+                    )
                 }
             }
         }
     }
 
-    private suspend fun applyWeeklyPlaylist(userId: String, videos: List<PlaylistVideo>) {
-        val repo = planRepo(userId)
-        val days = WorkoutDay.entries.toList()
-        val chunks = distributePreservingOrder(videos, daysCount = days.size)
-        days.forEachIndexed { idx, day ->
-            val list = chunks.getOrElse(idx) { emptyList() }
-            repo.replaceExercises(
-                day = day,
-                exercises = list.map { it.toExercise() }
+    fun updateDraftVideo(index: Int, updated: DraftPlaylistVideo) {
+        val s = playlistImportState.value
+        if (s !is PlaylistImportState.Preview) return
+        if (index !in s.items.indices) return
+        val next = s.items.toMutableList()
+        next[index] = updated
+        playlistImportState.value = s.copy(items = next)
+    }
+
+    fun removeDraftVideo(index: Int) {
+        val s = playlistImportState.value
+        if (s !is PlaylistImportState.Preview) return
+        if (index !in s.items.indices) return
+        val next = s.items.toMutableList()
+        next.removeAt(index)
+        playlistImportState.value = s.copy(items = next)
+    }
+
+    fun moveDraftVideo(fromIndex: Int, toIndex: Int) {
+        val s = playlistImportState.value
+        if (s !is PlaylistImportState.Preview) return
+        if (fromIndex !in s.items.indices) return
+        if (toIndex !in s.items.indices) return
+        if (fromIndex == toIndex) return
+        val next = s.items.toMutableList()
+        val item = next.removeAt(fromIndex)
+        next.add(toIndex, item)
+        playlistImportState.value = s.copy(items = next)
+    }
+
+    fun addDraftVideo(videoUrlOrId: String) {
+        val s = playlistImportState.value
+        if (s !is PlaylistImportState.Preview) return
+        val videoId = extractYoutubeVideoId(videoUrlOrId) ?: return
+        val next = s.items.toMutableList()
+        val day = weeklyDaysSundayFirst().firstOrNull() ?: WorkoutDay.MONDAY
+        next.add(
+            DraftPlaylistVideo(
+                videoId = videoId,
+                title = "Video ${next.size + 1}",
+                description = "",
+                thumbnailUrl = playlistScraper.videoThumbnailUrl(videoId),
+                assignedDay = day
             )
+        )
+        playlistImportState.value = s.copy(items = next)
+    }
+
+    fun saveDraftToWeeklyPlan() {
+        viewModelScope.launch {
+            val userId = userIdFlow.value ?: return@launch
+            val s = playlistImportState.value
+            if (s !is PlaylistImportState.Preview) return@launch
+            planRepo(userId).ensureSeeded()
+
+            val grouped = s.items.groupBy { it.assignedDay }
+            weeklyDaysSundayFirst().forEach { day ->
+                val list = grouped[day].orEmpty()
+                planRepo(userId).replaceExercises(
+                    day = day,
+                    exercises = list.map { it.toExercise(playlistScraper) }
+                )
+            }
+
+            syncRepo.syncUp(userId)
+            playlistImportState.value = PlaylistImportState.Success(s.items.size)
         }
     }
 
-    private suspend fun applyMonthlyPlaylist(userId: String, videos: List<PlaylistVideo>, days: Int) {
+    private suspend fun applyMonthlyPlaylist(userId: String, videos: List<Any>, days: Int) {
         val repo = monthlyRepo(userId)
-        val chunks = distributePreservingOrder(videos, daysCount = days)
+        // Legacy API-based path removed; keep method signature to avoid broad refactors.
+        val chunks = emptyList<List<Any>>()
         for (i in 1..days) {
             val list = chunks.getOrElse(i - 1) { emptyList() }
             repo.replaceDayVideos(
                 dayIndex = i,
-                videos = list.mapIndexed { idx, v ->
-                    MonthlyVideo(
-                        id = "${userId}_${i}_${idx}_${v.videoUrl.hashCode()}",
-                        title = v.title,
-                        thumbnailUrl = v.thumbnailUrl,
-                        videoUrl = v.videoUrl
-                    )
-                }
+                videos = emptyList()
             )
         }
     }
 
-    private fun PlaylistVideo.toExercise(): Exercise =
+    private fun DraftPlaylistVideo.toExercise(scraper: YoutubePlaylistScrapeClient): Exercise =
         Exercise(
             id = "",
-            name = title,
-            description = "",
+            name = title.ifBlank { "Video" },
+            description = description,
             durationSeconds = 0,
             restSeconds = 0,
             imageResId = null,
             imageUrl = thumbnailUrl,
-            youtubeLink = videoUrl
+            youtubeLink = scraper.videoWatchUrl(videoId)
         )
+
+    private fun weeklyDaysSundayFirst(): List<WorkoutDay> =
+        listOf(
+            WorkoutDay.SUNDAY,
+            WorkoutDay.MONDAY,
+            WorkoutDay.TUESDAY,
+            WorkoutDay.WEDNESDAY,
+            WorkoutDay.THURSDAY,
+            WorkoutDay.FRIDAY,
+            WorkoutDay.SATURDAY
+        )
+
+    private fun distributeIdsSundayFirst(ids: List<String>, days: List<WorkoutDay>): List<Pair<WorkoutDay, String>> {
+        if (days.isEmpty()) return emptyList()
+        val out = ArrayList<Pair<WorkoutDay, String>>(ids.size)
+        ids.forEachIndexed { idx, id ->
+            out += days[idx % days.size] to id
+        }
+        return out
+    }
+
+    private fun extractYoutubeVideoId(urlOrId: String): String? {
+        val t = urlOrId.trim()
+        if (t.length == 11 && Regex("""[A-Za-z0-9_-]{11}""").matches(t)) return t
+        val url = t
+        val vParam = Regex("""[?&]v=([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.getOrNull(1)
+        if (!vParam.isNullOrBlank()) return vParam
+        val short = Regex("""youtu\.be/([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.getOrNull(1)
+        if (!short.isNullOrBlank()) return short
+        val embed = Regex("""/embed/([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.getOrNull(1)
+        if (!embed.isNullOrBlank()) return embed
+        return null
+    }
 
     private fun distributePreservingOrder(
         videos: List<PlaylistVideo>,

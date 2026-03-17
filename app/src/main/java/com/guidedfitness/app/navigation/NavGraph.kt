@@ -17,6 +17,7 @@ import com.guidedfitness.app.ui.screens.PlaylistImportScreen
 import com.guidedfitness.app.ui.screens.ProgressScreen
 import com.guidedfitness.app.ui.screens.WeeklyPlanScreen
 import com.guidedfitness.app.ui.screens.WorkoutDetailScreen
+import com.guidedfitness.app.ui.screens.YoutubePlayerScreen
 
 sealed class Screen(val route: String) {
     data object WeeklyPlan : Screen("weekly_plan")
@@ -28,6 +29,9 @@ sealed class Screen(val route: String) {
     data object MonthlyPlan : Screen("monthly_plan")
     data object MonthlyDayDetail : Screen("monthly_day/{dayIndex}") {
         fun createRoute(dayIndex: Int) = "monthly_day/$dayIndex"
+    }
+    data object YoutubePlayer : Screen("youtube_player/{videoId}") {
+        fun createRoute(videoId: String) = "youtube_player/$videoId"
     }
 }
 
@@ -90,7 +94,8 @@ fun GuidedFitnessNavGraph(
                 onUpdateFocus = { focus -> viewModel.updateDayFocus(day, focus) },
                 onUpsertExercise = { exercise -> viewModel.addExercise(day, exercise) },
                 onRemoveExercise = { exerciseId -> viewModel.removeExercise(day, exerciseId) },
-                onReorderExercises = { ordered -> viewModel.reorderExercises(day, ordered) }
+                onReorderExercises = { ordered -> viewModel.reorderExercises(day, ordered) },
+                onPlayYoutube = { videoId -> navController.navigate(Screen.YoutubePlayer.createRoute(videoId)) }
             )
         }
         composable(Screen.Progress.route) {
@@ -116,15 +121,16 @@ fun GuidedFitnessNavGraph(
                 state = state,
                 onNavigateBack = { navController.popBackStack() },
                 onGenerate = { url, type -> viewModel.importFromYoutubePlaylist(url, type) },
-                onResetState = { viewModel.resetPlaylistImportState() }
+                onResetState = { viewModel.resetPlaylistImportState() },
+                onUpdateDraft = { idx, updated -> viewModel.updateDraftVideo(idx, updated) },
+                onRemoveDraft = { idx -> viewModel.removeDraftVideo(idx) },
+                onMoveDraft = { from, to -> viewModel.moveDraftVideo(from, to) },
+                onAddManualVideo = { text -> viewModel.addDraftVideo(text) },
+                onSave = { viewModel.saveDraftToWeeklyPlan() }
             )
             LaunchedEffect(state) {
                 val s = state
-                if (s is com.guidedfitness.app.ui.viewmodel.AppViewModel.PlaylistImportState.Success &&
-                    s.type == com.guidedfitness.app.ui.viewmodel.AppViewModel.ImportPlanType.MONTHLY
-                ) {
-                    navController.navigate(Screen.MonthlyPlan.route)
-                }
+                // No-op: preview stays on this screen; weekly plan is updated on save.
             }
         }
 
@@ -148,6 +154,17 @@ fun GuidedFitnessNavGraph(
                 onAddVideo = { title, url -> viewModel.addMonthlyVideo(dayIndex, title, url) },
                 onRemoveVideo = { videoId -> viewModel.removeMonthlyVideo(videoId) },
                 onReorder = { ordered -> viewModel.reorderMonthlyVideos(dayIndex, ordered) }
+            )
+        }
+
+        composable(
+            route = Screen.YoutubePlayer.route,
+            arguments = listOf(navArgument("videoId") { type = NavType.StringType })
+        ) { entry ->
+            val videoId = entry.arguments?.getString("videoId").orEmpty()
+            YoutubePlayerScreen(
+                videoId = videoId,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

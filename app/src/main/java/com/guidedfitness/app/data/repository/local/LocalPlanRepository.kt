@@ -31,7 +31,8 @@ class LocalPlanRepository(
 
     override fun getWeeklyPlan(): Flow<List<DayWorkout>> =
         planDao.observeWeeklyPlanWithExercises(userId).map { list ->
-            list.map { it.toDomain() }
+            val ordered = list.sortedBy { weeklyOrderIndex(it.workout.day) }
+            ordered.map { it.toDomain() }
         }
 
     override fun getDayWorkout(day: WorkoutDay): Flow<DayWorkout?> =
@@ -144,6 +145,17 @@ class LocalPlanRepository(
     }
 
     private fun workoutId(day: WorkoutDay) = "${userId}_${day.name}"
+
+    private fun weeklyOrderIndex(dayName: String): Int = when (dayName) {
+        WorkoutDay.SUNDAY.name -> 0
+        WorkoutDay.MONDAY.name -> 1
+        WorkoutDay.TUESDAY.name -> 2
+        WorkoutDay.WEDNESDAY.name -> 3
+        WorkoutDay.THURSDAY.name -> 4
+        WorkoutDay.FRIDAY.name -> 5
+        WorkoutDay.SATURDAY.name -> 6
+        else -> 99
+    }
 
     private fun defaultIconKey(focus: DayFocus): String = when (focus) {
         DayFocus.STRENGTH -> "strength"

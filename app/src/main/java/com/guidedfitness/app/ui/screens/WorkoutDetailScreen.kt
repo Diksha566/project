@@ -14,8 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+// LazyColumn import removed; list is handled by ReorderableLazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -51,6 +50,7 @@ import com.guidedfitness.app.data.model.DayWorkout
 import com.guidedfitness.app.data.model.DayFocus
 import com.guidedfitness.app.data.model.Exercise
 import com.guidedfitness.app.data.model.WorkoutDay
+import com.guidedfitness.app.ui.components.ReorderableLazyColumn
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,7 +63,8 @@ fun WorkoutDetailScreen(
     onUpdateFocus: (focus: DayFocus) -> Unit = {},
     onUpsertExercise: (exercise: Exercise) -> Unit = {},
     onRemoveExercise: (exerciseId: String) -> Unit = {},
-    onReorderExercises: (orderedExerciseIds: List<String>) -> Unit = {}
+    onReorderExercises: (orderedExerciseIds: List<String>) -> Unit = {},
+    onPlayYoutube: (videoId: String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showAddVideoDialog by remember { mutableStateOf(false) }
@@ -197,7 +198,7 @@ fun WorkoutDetailScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
@@ -205,11 +206,9 @@ fun WorkoutDetailScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (workout == null) {
-                item {
-                    Text("Loading...", style = MaterialTheme.typography.bodyLarge)
-                }
+                Text("Loading...", style = MaterialTheme.typography.bodyLarge)
             } else {
-                item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -232,68 +231,78 @@ fun WorkoutDetailScreen(
                 }
 
                 if (workout.youtubeVideoId != null) {
-                    item {
-                        val videoId = workout.youtubeVideoId!!
-                        Card(
+                    val videoId = workout.youtubeVideoId!!
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPlayYoutube(videoId) },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    val url = "https://www.youtube.com/watch?v=$videoId"
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                },
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer
-                            )
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    "Watch guided video",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                "Watch guided video",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
                         }
                     }
                 } else {
-                    item {
-                        Card(
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAddVideoDialog = true },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { showAddVideoDialog = true },
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Add YouTube video for this day", style = MaterialTheme.typography.bodyMedium)
-                            }
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text("Add YouTube video for this day", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
 
-                items(workout.exercises) { exercise ->
+                Text(
+                    "Videos / Exercises (long-press & drag to reorder)",
+                    style = MaterialTheme.typography.titleSmall
+                )
+
+                ReorderableLazyColumn(
+                    items = workout.exercises,
+                    key = { it.id },
+                    modifier = Modifier.fillMaxWidth(),
+                    onMove = { from, to ->
+                        val current = workout.exercises.toMutableList()
+                        if (from !in current.indices || to !in current.indices) return@ReorderableLazyColumn
+                        val item = current.removeAt(from)
+                        current.add(to, item)
+                        onReorderExercises(current.map { it.id })
+                    }
+                ) { exercise, _ ->
+                    val idx = workout.exercises.indexOfFirst { it.id == exercise.id }
                     ExerciseCard(
                         exercise = exercise,
-                        canMoveUp = workout.exercises.firstOrNull()?.id != exercise.id,
-                        canMoveDown = workout.exercises.lastOrNull()?.id != exercise.id,
+                        canMoveUp = idx > 0,
+                        canMoveDown = idx >= 0 && idx < workout.exercises.lastIndex,
                         onEdit = {
                             editingExercise = exercise
                             exName = exercise.name
@@ -305,7 +314,6 @@ fun WorkoutDetailScreen(
                             showExerciseDialog = true
                         },
                         onMoveUp = {
-                            val idx = workout.exercises.indexOfFirst { it.id == exercise.id }
                             if (idx > 0) {
                                 val newOrder = workout.exercises.toMutableList()
                                 newOrder.removeAt(idx)
@@ -314,7 +322,6 @@ fun WorkoutDetailScreen(
                             }
                         },
                         onMoveDown = {
-                            val idx = workout.exercises.indexOfFirst { it.id == exercise.id }
                             if (idx >= 0 && idx < workout.exercises.lastIndex) {
                                 val newOrder = workout.exercises.toMutableList()
                                 newOrder.removeAt(idx)
@@ -326,29 +333,27 @@ fun WorkoutDetailScreen(
                     )
                 }
 
-                item {
-                    Button(
-                        onClick = {
-                            editingExercise = null
-                            exName = ""
-                            exDesc = ""
-                            exDuration = "60"
-                            exRest = "30"
-                            exImageUrl = ""
-                            exYoutube = ""
-                            showExerciseDialog = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Add exercise")
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    FilledTonalButton(
-                        onClick = { onMarkComplete(workout.totalDurationMinutes) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Mark Workout Complete")
-                    }
+                Button(
+                    onClick = {
+                        editingExercise = null
+                        exName = ""
+                        exDesc = ""
+                        exDuration = "60"
+                        exRest = "30"
+                        exImageUrl = ""
+                        exYoutube = ""
+                        showExerciseDialog = true
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Add exercise / video")
+                }
+                Spacer(Modifier.height(16.dp))
+                FilledTonalButton(
+                    onClick = { onMarkComplete(workout.totalDurationMinutes) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Mark Workout Complete")
                 }
             }
         }
@@ -420,7 +425,12 @@ private fun ExerciseCard(
                 Row(
                     modifier = Modifier
                         .clickable {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            val id =
+                                Regex("""[?&]v=([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.getOrNull(1)
+                                    ?: Regex("""youtu\.be/([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.getOrNull(1)
+                                    ?: Regex("""/embed/([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.getOrNull(1)
+                            if (!id.isNullOrBlank()) onPlayYoutube(id)
+                            else context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                         }
                         .padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically

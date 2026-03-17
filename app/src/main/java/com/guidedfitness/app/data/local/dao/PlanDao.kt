@@ -37,7 +37,7 @@ interface PlanDao {
     suspend fun getDayWorkout(workoutId: String): DayWorkoutEntity?
 
     @Transaction
-    @Query("SELECT * FROM day_workouts WHERE userId = :userId ORDER BY day ASC")
+    @Query("SELECT * FROM day_workouts WHERE userId = :userId")
     fun observeWeeklyPlanWithExercises(userId: String): Flow<List<DayWorkoutWithExercises>>
 
     @Transaction
