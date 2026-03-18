@@ -27,7 +27,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.temporal.TemporalAdjusters
+import java.util.UUID
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -364,6 +366,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = false
     )
 
+    val completedEpochDays: StateFlow<Set<Long>> =
+        logsFlow.map { logs -> logs.map { it.dateEpochDay }.toSet() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    val plannedEpochDays: StateFlow<Set<Long>> =
+        kotlinx.coroutines.flow.combine(weeklyPlan, monthlyPlan) { weekly, monthly ->
+            val ym = YearMonth.now()
+            val planned = mutableSetOf<Long>()
+
+            // Weekly plan repeats for each weekday in the month.
+            val weeklyByDay = weekly.associateBy { it.day }
+            for (d in 1..ym.lengthOfMonth()) {
+                val date = ym.atDay(d)
+                val wd = when (date.dayOfWeek) {
+                    DayOfWeek.SUNDAY -> WorkoutDay.SUNDAY
+                    DayOfWeek.MONDAY -> WorkoutDay.MONDAY
+                    DayOfWeek.TUESDAY -> WorkoutDay.TUESDAY
+                    DayOfWeek.WEDNESDAY -> WorkoutDay.WEDNESDAY
+                    DayOfWeek.THURSDAY -> WorkoutDay.THURSDAY
+                    DayOfWeek.FRIDAY -> WorkoutDay.FRIDAY
+                    DayOfWeek.SATURDAY -> WorkoutDay.SATURDAY
+                }
+                val workout = weeklyByDay[wd]
+                val isPlanned = workout != null && (workout.exercises.isNotEmpty() || workout.youtubeVideoId != null)
+                if (isPlanned) planned += date.toEpochDay()
+            }
+
+            // Monthly plan: Day 1..30 maps to day-of-month if it exists in this month.
+            monthly.forEach { md ->
+                if (md.dayIndex in 1..ym.lengthOfMonth() && md.videos.isNotEmpty()) {
+                    planned += ym.atDay(md.dayIndex).toEpochDay()
+                }
+            }
+
+            planned
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     data class DayProgress(
         val minutes: Int,
         val sessions: Int
@@ -409,6 +448,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         weeklyProgressByDay.map { map -> map.values.count { it.completed } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    val monthlyProgressByDayIndex: StateFlow<Map<Int, DayProgress>> =
+        logsFlow.map { logs ->
+            val map = mutableMapOf<Int, DayProgress>()
+            val monthly = logs.filter { it.day.startsWith("MONTHLY_") }
+            val grouped = monthly.groupBy { it.day.removePrefix("MONTHLY_").toIntOrNull() ?: -1 }
+            grouped.forEach { (idx, list) ->
+                if (idx > 0) {
+                    map[idx] = DayProgress(
+                        minutes = list.sumOf { it.minutes },
+                        sessions = list.size
+                    )
+                }
+            }
+            map
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     val todayWorkout: StateFlow<com.guidedfitness.app.data.model.DayWorkout?> =
         userIdFlow.filterNotNull()
             .flatMapLatest { userId ->
@@ -430,6 +485,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val userId = userIdFlow.value ?: return@launch
             progressRepo.recordCompletion(userId, day, focus, minutes)
+            syncRepo.syncUp(userId)
+        }
+    }
+
+    fun randomMotivation(userName: String?): String {
+        val name = userName?.takeIf { it.isNotBlank() } ?: "champ"
+        val msgs = listOf(
+            "Good job, $name! 💪",
+            "You’re doing amazing, $name! 🔥",
+            "Keep going, $name — you’re getting stronger! ✨",
+            "Proud of you, $name! ❤️",
+            "Small steps add up, $name. Keep it up!",
+            "Consistency looks good on you, $name!"
+        )
+        return msgs.random()
+    }
+
+    fun recordMonthlyCompletion(dayIndex: Int, minutes: Int) {
+        viewModelScope.launch {
+            val userId = userIdFlow.value ?: return@launch
+            val now = System.currentTimeMillis()
+            db.progressDao().insert(
+                com.guidedfitness.app.data.local.entity.ProgressLogEntity(
+                    logId = UUID.randomUUID().toString(),
+                    userId = userId,
+                    dateEpochDay = LocalDate.now().toEpochDay(),
+                    day = "MONTHLY_$dayIndex",
+                    focus = "MONTHLY",
+                    minutes = minutes.coerceAtLeast(0),
+                    createdAt = now
+                )
+            )
             syncRepo.syncUp(userId)
         }
     }

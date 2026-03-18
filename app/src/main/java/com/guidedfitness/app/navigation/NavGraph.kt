@@ -2,6 +2,7 @@ package com.guidedfitness.app.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -9,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.navArgument
 import com.guidedfitness.app.data.model.WorkoutDay
 import com.guidedfitness.app.ui.screens.MonthlyDayDetailScreen
@@ -17,6 +19,7 @@ import com.guidedfitness.app.ui.screens.PlaylistImportScreen
 import com.guidedfitness.app.ui.screens.ProgressScreen
 import com.guidedfitness.app.ui.screens.WeeklyPlanScreen
 import com.guidedfitness.app.ui.screens.WorkoutDetailScreen
+import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String) {
     data object WeeklyPlan : Screen("weekly_plan")
@@ -37,6 +40,8 @@ fun GuidedFitnessNavGraph(
     viewModelProvider: () -> com.guidedfitness.app.ui.viewmodel.AppViewModel
 ) {
     val viewModel = viewModelProvider()
+    val scope = rememberCoroutineScope()
+    val userName = viewModel.userName.collectAsState(initial = null).value
 
     NavHost(
         navController = navController,
@@ -87,6 +92,13 @@ fun GuidedFitnessNavGraph(
                 onMarkComplete = { minutes ->
                     val focus = workout?.focus ?: day.focus
                     viewModel.recordWorkoutCompletion(day, focus, minutes)
+                    scope.launch {
+                        android.widget.Toast.makeText(
+                            navController.context,
+                            viewModel.randomMotivation(userName),
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                     navController.popBackStack()
                 },
                 onSetYoutubeVideoId = { videoId -> viewModel.setYoutubeVideoId(day, videoId) },
@@ -115,6 +127,8 @@ fun GuidedFitnessNavGraph(
                 weeklyMinutesSeries = viewModel.weeklyMinutesSeries.collectAsState(initial = emptyList()).value,
                 monthlyMinutesSeries = viewModel.monthlyMinutesSeries.collectAsState(initial = emptyList()).value,
                 yearlyMinutesSeries = viewModel.yearlyMinutesSeries.collectAsState(initial = emptyList()).value,
+                completedEpochDays = viewModel.completedEpochDays.collectAsState(initial = emptySet()).value,
+                plannedEpochDays = viewModel.plannedEpochDays.collectAsState(initial = emptySet()).value,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -141,6 +155,7 @@ fun GuidedFitnessNavGraph(
         composable(Screen.MonthlyPlan.route) {
             MonthlyPlanScreen(
                 days = viewModel.monthlyPlan.collectAsState(initial = emptyList()).value,
+                progressByDayIndex = viewModel.monthlyProgressByDayIndex.collectAsState(initial = emptyMap()).value,
                 onNavigateBack = { navController.popBackStack() },
                 onDayClick = { dayIndex -> navController.navigate(Screen.MonthlyDayDetail.createRoute(dayIndex)) }
             )
@@ -155,9 +170,26 @@ fun GuidedFitnessNavGraph(
             MonthlyDayDetailScreen(
                 day = day,
                 onNavigateBack = { navController.popBackStack() },
-                onAddVideo = { title, url -> viewModel.addMonthlyVideo(dayIndex, title, url) },
+                onUpsertVideo = { id, title, url ->
+                    if (id.isNullOrBlank()) viewModel.addMonthlyVideo(dayIndex, title, url)
+                    else {
+                        // Update by remove+add to keep schema simple
+                        viewModel.removeMonthlyVideo(id)
+                        viewModel.addMonthlyVideo(dayIndex, title, url)
+                    }
+                },
                 onRemoveVideo = { videoId -> viewModel.removeMonthlyVideo(videoId) },
-                onReorder = { ordered -> viewModel.reorderMonthlyVideos(dayIndex, ordered) }
+                onReorder = { ordered -> viewModel.reorderMonthlyVideos(dayIndex, ordered) },
+                onMarkComplete = { minutes ->
+                    viewModel.recordMonthlyCompletion(dayIndex, minutes)
+                    scope.launch {
+                        android.widget.Toast.makeText(
+                            navController.context,
+                            viewModel.randomMotivation(userName),
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
             )
         }
 

@@ -43,6 +43,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -88,6 +90,14 @@ fun WorkoutDetailScreen(
     var timerTitle by remember { mutableStateOf("") }
     var timerWork by remember { mutableStateOf(60) }
     var timerRest by remember { mutableStateOf(30) }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            exImageUrl = uri.toString()
+        }
+    }
 
     if (showAddVideoDialog) {
         AlertDialog(
@@ -156,7 +166,12 @@ fun WorkoutDetailScreen(
                     OutlinedTextField(value = exDesc, onValueChange = { exDesc = it }, label = { Text("Description") })
                     OutlinedTextField(value = exDuration, onValueChange = { exDuration = it }, label = { Text("Duration (seconds)") })
                     OutlinedTextField(value = exRest, onValueChange = { exRest = it }, label = { Text("Rest (seconds)") })
-                    OutlinedTextField(value = exImageUrl, onValueChange = { exImageUrl = it }, label = { Text("Image URL (optional)") })
+                    OutlinedButton(
+                        onClick = { imagePicker.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (exImageUrl.isBlank()) "Upload image from gallery" else "Change image")
+                    }
                     OutlinedTextField(value = exYoutube, onValueChange = { exYoutube = it }, label = { Text("YouTube link (optional)") })
                 }
             },
@@ -215,6 +230,39 @@ fun WorkoutDetailScreen(
                 }
             )
         }
+        ,
+        bottomBar = {
+            if (workout != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            editingExercise = null
+                            exName = ""
+                            exDesc = ""
+                            exDuration = "60"
+                            exRest = "30"
+                            exImageUrl = ""
+                            exYoutube = ""
+                            showExerciseDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Add exercise / video")
+                    }
+                    FilledTonalButton(
+                        onClick = { onMarkComplete(workout.totalDurationMinutes) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Mark Workout Complete")
+                    }
+                }
+            }
+        }
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -267,56 +315,7 @@ fun WorkoutDetailScreen(
                     )
                 }
 
-                if (workout.youtubeVideoId != null) {
-                    val videoId = workout.youtubeVideoId!!
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onPlayYoutube(videoId) },
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                "▶ Watch on YouTube",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-                } else {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showAddVideoDialog = true },
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(12.dp))
-                            Text("Add YouTube video for this day", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
+                // Removed the global/top-level YouTube CTA. Keep YouTube buttons inside each exercise/video card.
 
                 Text(
                     "Videos / Exercises (long-press & drag to reorder)",
@@ -326,7 +325,9 @@ fun WorkoutDetailScreen(
                 ReorderableLazyColumn(
                     items = workout.exercises,
                     key = { it.id },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = true),
                     onMove = { from, to ->
                         val current = workout.exercises.toMutableList()
                         if (from !in current.indices || to !in current.indices) return@ReorderableLazyColumn
@@ -357,29 +358,6 @@ fun WorkoutDetailScreen(
                         },
                         onPlayYoutube = onPlayYoutube
                     )
-                }
-
-                Button(
-                    onClick = {
-                        editingExercise = null
-                        exName = ""
-                        exDesc = ""
-                        exDuration = "60"
-                        exRest = "30"
-                        exImageUrl = ""
-                        exYoutube = ""
-                        showExerciseDialog = true
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Add exercise / video")
-                }
-                Spacer(Modifier.height(16.dp))
-                FilledTonalButton(
-                    onClick = { onMarkComplete(workout.totalDurationMinutes) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Mark Workout Complete")
                 }
             }
         }

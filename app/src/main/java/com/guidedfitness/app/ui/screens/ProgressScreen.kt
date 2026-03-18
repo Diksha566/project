@@ -34,6 +34,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -42,6 +46,11 @@ import com.github.mikephil.charting.components.XAxis
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.DayOfWeek
+import java.time.format.TextStyle
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,6 +66,8 @@ fun ProgressScreen(
     weeklyMinutesSeries: List<Pair<Long, Int>>,
     monthlyMinutesSeries: List<Pair<Long, Int>>,
     yearlyMinutesSeries: List<Pair<Long, Int>>,
+    completedEpochDays: Set<Long>,
+    plannedEpochDays: Set<Long>,
     onNavigateBack: () -> Unit
 ) {
     var range by remember { mutableIntStateOf(0) } // 0=Day,1=Week,2=Month,3=Year (future expansion)
@@ -124,6 +135,15 @@ fun ProgressScreen(
                 }
             }
             item {
+                Text("Calendar", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                MonthCalendar(
+                    yearMonth = YearMonth.now(),
+                    completedEpochDays = completedEpochDays,
+                    plannedEpochDays = plannedEpochDays
+                )
+            }
+            item {
                 if (dailyMinutesSeries.all { it.second == 0 }) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -146,6 +166,99 @@ fun ProgressScreen(
                         else -> yearlyMinutesSeries
                     }
                     ProgressLineChart(series = series, height = 260.dp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthCalendar(
+    yearMonth: YearMonth,
+    completedEpochDays: Set<Long>,
+    plannedEpochDays: Set<Long>
+) {
+    val first = yearMonth.atDay(1)
+    val daysInMonth = yearMonth.lengthOfMonth()
+    val firstDow = first.dayOfWeek // MON..SUN
+    // We want a Sunday-first grid. Compute leading blanks.
+    val leading = when (firstDow) {
+        DayOfWeek.SUNDAY -> 0
+        DayOfWeek.MONDAY -> 1
+        DayOfWeek.TUESDAY -> 2
+        DayOfWeek.WEDNESDAY -> 3
+        DayOfWeek.THURSDAY -> 4
+        DayOfWeek.FRIDAY -> 5
+        DayOfWeek.SATURDAY -> 6
+    }
+    val totalCells = leading + daysInMonth
+    val rows = ((totalCells + 6) / 7)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                "${yearMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${yearMonth.year}",
+                style = MaterialTheme.typography.titleMedium
+            )
+            // DOW header
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat").forEach { d ->
+                    Text(d, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            for (r in 0 until rows) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    for (c in 0 until 7) {
+                        val cell = r * 7 + c
+                        val dayNum = cell - leading + 1
+                        if (dayNum < 1 || dayNum > daysInMonth) {
+                            Spacer(Modifier.size(32.dp))
+                        } else {
+                            val date = yearMonth.atDay(dayNum)
+                            val epoch = date.toEpochDay()
+                            val bg = when {
+                                completedEpochDays.contains(epoch) -> MaterialTheme.colorScheme.secondary
+                                plannedEpochDays.contains(epoch) -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.surface
+                            }
+                            val fg = when {
+                                completedEpochDays.contains(epoch) -> MaterialTheme.colorScheme.onSecondary
+                                plannedEpochDays.contains(epoch) -> MaterialTheme.colorScheme.onPrimary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .padding(0.dp)
+                                    .then(Modifier),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = bg),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.size(32.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            dayNum.toString(),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = fg
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

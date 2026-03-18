@@ -33,6 +33,7 @@ import com.guidedfitness.app.data.repository.local.MonthlyDay
 @Composable
 fun MonthlyPlanScreen(
     days: List<MonthlyDay>,
+    progressByDayIndex: Map<Int, com.guidedfitness.app.ui.viewmodel.AppViewModel.DayProgress>,
     onNavigateBack: () -> Unit,
     onDayClick: (dayIndex: Int) -> Unit
 ) {
@@ -97,6 +98,7 @@ fun MonthlyPlanScreen(
                 }
             }
             items(days) { day ->
+                val progress = progressByDayIndex[day.dayIndex]
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -110,9 +112,17 @@ fun MonthlyPlanScreen(
                         ) {
                             Text(day.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                             Text(
-                                if (day.videos.isEmpty()) "Empty" else "Planned",
+                                when {
+                                    progress?.completed == true -> "✔ Completed"
+                                    day.videos.isEmpty() -> "Empty"
+                                    else -> "Planned"
+                                },
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (day.videos.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.secondary
+                                color = when {
+                                    progress?.completed == true -> MaterialTheme.colorScheme.secondary
+                                    day.videos.isEmpty() -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    else -> MaterialTheme.colorScheme.primary
+                                }
                             )
                         }
                         Spacer(Modifier.height(4.dp))
@@ -121,6 +131,13 @@ fun MonthlyPlanScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
+                        progress?.let {
+                            Text(
+                                "${it.minutes} min",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
